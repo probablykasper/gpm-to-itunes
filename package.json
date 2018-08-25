@@ -1,0 +1,7 @@
+{
+  "name": "gpm-to-itunes",
+  "scripts": {
+    "start": "python3 ./main.py",
+    "dev": "nodemon -L --watch main.py --exec python3 ./main.py"
+  }
+}
