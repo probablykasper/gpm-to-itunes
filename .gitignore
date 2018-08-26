@@ -1,5 +1,7 @@
 appscript-1.0.1
 ExportImport.vbs
-library_original.json
+*.json
 mergescriptarticle.py
 Swap Song Name and Artist
+.vscode
+__pycache__
