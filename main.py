@@ -36,6 +36,14 @@ def gpm_timestamp_to_date(gpm_timestamp):
     date = datetime.datetime.fromtimestamp(timestamp)
     return date
 
+
+def get_posix_path(file_path):
+    from shlex import quote
+    escaped_file_path = quote(file_path).strip("'")
+    posix_path_cmd = """  osascript -e 'POSIX file "%s" as string'  """ % (escaped_file_path)
+    posix_path = subprocess.check_output(posix_path_cmd, shell=True).decode("utf-8").rstrip()
+    return posix_path
+
 def download_library():
     api = Mobileclient()
     logged_in = api.login(options['gpm_username'], options['gpm_password'], Mobileclient.FROM_MAC_ADDRESS)
@@ -63,7 +71,7 @@ def restructure_library(original_library):
             duplicates += 1
         else:
             library['tracks'][key] = gpm_track
-            library['track_keys'][gpm_track['clientId']] = key
+            library['track_keys'][gpm_track['id']] = key
     if duplicates != 0:
         print(
             "Found ", str(duplicates), " duplicates."
@@ -122,6 +130,7 @@ def add_to_itunes(gpm_library, only_scan):
         for key, gpm_track in tqdm(gpm_library['tracks'].items()):
             search_criteria = appscript.its.name == gpm_track['title']
             search_criteria = search_criteria.AND(appscript.its.artist == gpm_track['artist'])
+            search_criteria = search_criteria.AND(appscript.its.album == gpm_track['album'])
             search_result = itunes_library.tracks[search_criteria].get()
             if len(search_result) == 0:
                 gpm_track['already_exists'] = False
@@ -163,19 +172,24 @@ def add_to_itunes(gpm_library, only_scan):
 
         # make playlists for tracks that were liked/disliked in GPM
         thumbs_up_playlist = iTunes.make(
-            new=appscript.k.playlist,
+            new=appscript.k.user_playlist,
             with_properties={
                 appscript.k.name: 'GPM Thumbs Up'
             }
         )
         thumbs_down_playlist = iTunes.make(
-            new=appscript.k.playlist,
+            new=appscript.k.user_playlist,
             with_properties={
                 appscript.k.name: 'GPM Thumbs Down'
             }
         )
 
-        for key, gpm_track in tqdm(gpm_library['tracks'].items()):
+        FNULL = open(os.devnull, 'w')
+        i = 0
+        for key, gpm_track in gpm_library['tracks'].items():
+            i += 1
+            # if i < 6900: continue
+            print(i, "       ", key)
             track_md = gpm_track['track_md']
             # tqdm.write(track_md['date_added'])
 
@@ -184,24 +198,13 @@ def add_to_itunes(gpm_library, only_scan):
             time = date_added.strftime('%H:%M:%S') # hh:mm:ss
             subprocess.call(
                 ('echo "%s" | sudo -S systemsetup -setdate %s -settime %s'
-                % (options['sudo_password'], date, time)), shell=True, stdout=subprocess.PIPE
+                % (options['sudo_password'], date, time)), shell=True, stdout=FNULL, stderr=subprocess.STDOUT
             )
             
-            posix_path_cmd = """  osascript -e 'POSIX file "%s" as string'  """ % (track_md['file_path'])
-            posix_path = subprocess.check_output(posix_path_cmd, shell=True).decode("utf-8").rstrip()
-            # print(posix_path)
-
             # add to itunes and update metadata
             gpm_track_md = gpm_track['track_md']
             if gpm_track['already_exists'] == True: # track already exists in itunes
                 itunes_track = gpm_track['itunes_track']
-
-                gpm_loved = gpm_track_md['loved']
-                gpm_disliked = gpm_track_md['disliked']
-                if (gpm_loved):
-                    itunes_track.duplicate(to=thumbs_up_playlist)
-                elif (gpm_disliked):
-                    itunes_track.duplicate(to=thumbs_down_playlist)
 
                 itunes_played_count = getattr(itunes_track, 'played_count').get()
                 gpm_played_count = gpm_track_md['played_count']
@@ -215,18 +218,29 @@ def add_to_itunes(gpm_library, only_scan):
                 else:
                     new_played_date = gpm_played_date
                 getattr(itunes_track, 'played_date').set(new_played_date)
+
+                itunes_track_location = getattr(itunes_track, 'location').get()
+                if itunes_track_location == appscript.k.missing_value:
+                    import shutil, ntpath
+                    filename = ntpath.basename(track_md['file_path'])
+                    new_itunes_track_location = os.path.join(options['itunes_media_folder'], filename)
+                    shutil.copyfile(track_md['file_path'], new_itunes_track_location)
+                    new_posix_path = get_posix_path(new_itunes_track_location)
+                    getattr(itunes_track, 'location').set(new_posix_path)
             else: # track doesn't exist in itunes
+                posix_path = get_posix_path(track_md['file_path'])
                 gpm_track['itunes_track'] = iTunes.add(posix_path)
                 itunes_track = gpm_track['itunes_track']
 
-                getattr(itunes_track, 'disliked').set(gpm_track_md['disliked'])
-                getattr(itunes_track, 'loved').set(gpm_track_md['loved'])
                 getattr(itunes_track, 'played_count').set(gpm_track_md['played_count'])
                 getattr(itunes_track, 'played_date').set(gpm_timestamp_to_date(gpm_track_md['played_date']))
-
-            # break
-            import time
-            time.sleep(5)
+            
+            gpm_loved = gpm_track_md['loved']
+            gpm_disliked = gpm_track_md['disliked']
+            if (gpm_loved):
+                itunes_track.duplicate(to=thumbs_up_playlist)
+            elif (gpm_disliked):
+                itunes_track.duplicate(to=thumbs_down_playlist)
         
         # set network time to what it was before
         subprocess.call(
@@ -239,16 +253,21 @@ def add_to_itunes(gpm_library, only_scan):
         print('Adding playlists to iTunes...')
         for gpm_playlist in gpm_library['playlists']:
             # make playlist
+            if 'description' in gpm_playlist: description = gpm_playlist['description']
+            else: description = ''
             itunes_playlist = iTunes.make(
-                new=appscript.k.playlist,
+                new=appscript.k.user_playlist,
                 with_properties={
-                    appscript.k.name: gpm_library['name'],
-                    appscript.k.description: gpm_library['description'],
+                    appscript.k.name: gpm_playlist['name'],
+                    appscript.k.description: description,
                 }
             )
             # add songs to playlist
-            for gpm_playlist_track in gpm_library['tracks']:
-                gpm_track['itunes_track'].duplicate(to=itunes_playlist)
+            for gpm_playlist_track in gpm_playlist['tracks']:
+                key = gpm_library['track_keys'][gpm_playlist_track['trackId']]
+                gpm_library['tracks'][key]['itunes_track'].duplicate(to=itunes_playlist)
+    if only_scan == False:
+        print('All done. Now make sure your clock is correct.')
 
 if options['action'] == 'download':
     print('Downloading GPM library...')

@@ -8,5 +8,6 @@ options = {
     # scan_itunes
     # add_to_itunes
     'songs_path': '/Users/kasp/Downloads/mooosik',
+    'itunes_media_folder': '/Users/kasp/Music/iTunes/iTunes Media/Music',
     'sudo_password': '123',
 }
