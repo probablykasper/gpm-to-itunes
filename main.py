@@ -104,6 +104,15 @@ def match_files(gpm_library):
                     'disliked': True if 'rating' in gpm_track and gpm_track['rating'] == '1' else False,
                     'date_added': gpm_track['creationTimestamp'],
                     'played_date': gpm_track['recentTimestamp'],
+                    'year': gpm_track['year'],
+                    'album_artist': gpm_track['albumArtist'],
+                    'composer': gpm_track['composer'],
+                    'comment': gpm_track['comment'] if "comment" in gpm_track else "",
+                    'track_number': gpm_track['trackNumber'],
+                    'track_count': gpm_track['totalTrackCount'],
+                    'genre': gpm_track['genre'],
+                    'disc_number': gpm_track['discNumber'],
+                    'disc_count': gpm_track['totalDiscCount'],
                 }
                 track_md['file_path'] = file_path
                 if key in gpm_library['tracks']:
@@ -121,6 +130,21 @@ def add_to_itunes(gpm_library, only_scan):
     
     iTunes = appscript.app('iTunes')
     itunes_library = iTunes.library_playlists['Library']
+    md_map = json.loads(open('md_map.json').read())
+
+    # find unmatches itunes tracks
+    itunes_tracks = itunes_library.tracks.get()
+    unmatched_itunes_tracks = {}
+    for itunes_track in itunes_tracks:
+        title = getattr(itunes_track, "name").get()
+        artist = getattr(itunes_track, "artist").get()
+        album = getattr(itunes_track, "album").get()
+        key = title +" - "+ artist +" - "+ album
+        unmatched_itunes_tracks[key] = {
+            "title": title,
+            "artist": artist,
+            "album": album,
+        }
 
     # scan itunes
     if True:
@@ -128,15 +152,26 @@ def add_to_itunes(gpm_library, only_scan):
         already_existing = 0
         duplicates = 0
         for key, gpm_track in tqdm(gpm_library['tracks'].items()):
-            search_criteria = appscript.its.name == gpm_track['title']
-            search_criteria = search_criteria.AND(appscript.its.artist == gpm_track['artist'])
-            search_criteria = search_criteria.AND(appscript.its.album == gpm_track['album'])
+            title = gpm_track['title']
+            artist = gpm_track['artist']
+            album = gpm_track['album']
+            gpm_track['md_map'] = False
+            md_map_key = title+" - "+artist+" - "+album
+            if md_map_key in md_map:
+                gpm_track['md_map'] = True
+                title = md_map[md_map_key]['title']
+                artist = md_map[md_map_key]['artist']
+                album = md_map[md_map_key]['album']
+            search_criteria = appscript.its.name == title
+            search_criteria = search_criteria.AND(appscript.its.artist == artist)
+            search_criteria = search_criteria.AND(appscript.its.album == album)
             search_result = itunes_library.tracks[search_criteria].get()
             if len(search_result) == 0:
                 gpm_track['already_exists'] = False
             else:
                 gpm_track['already_exists'] = True
                 gpm_track['itunes_track'] = search_result[0]
+                unmatched_itunes_tracks.pop(title+" - "+artist+" - "+album, None)
                 if len(search_result) == 1:
                     tqdm.write('    Track already exists in iTunes library "%s"' % key)
                     already_existing += 1
@@ -156,6 +191,15 @@ def add_to_itunes(gpm_library, only_scan):
                 'Error: Found', str(duplicates), 'duplicate track(s) in the itunes library.'
                 ' If you proceed, one of the duplicates will be considered an already existing track.'
             )
+        print()
+        print("Unmatched iTunes tracks:")
+        
+        for key, value in unmatched_itunes_tracks.items():
+            print(key)
+        print()
+        print()
+        print()
+        print(json.dumps(unmatched_itunes_tracks, indent=4))
 
     # add tracks to itunes
     if only_scan == False:
@@ -169,7 +213,16 @@ def add_to_itunes(gpm_library, only_scan):
             ('echo %s | sudo -S systemsetup -setusingnetworktime %s'
             % (options['sudo_password'], 'off')), shell=True, stdout=subprocess.PIPE
         )
+        print()
 
+        # folder playlist
+        itunes_folder_playlist = iTunes.make(
+            new=appscript.k.folder_playlist,
+            with_properties={
+                appscript.k.name: 'GPM PLAYLISTS',
+                appscript.k.description: 'Playlists imported from GPM using the gpm-to-itunes script',
+            }
+        )
         # make playlists for tracks that were liked/disliked in GPM
         thumbs_up_playlist = iTunes.make(
             new=appscript.k.user_playlist,
@@ -183,6 +236,9 @@ def add_to_itunes(gpm_library, only_scan):
                 appscript.k.name: 'GPM Thumbs Down'
             }
         )
+        # add thumbs up/down playlists to folder playlist
+        thumbs_up_playlist.move(to=itunes_folder_playlist)
+        thumbs_down_playlist.move(to=itunes_folder_playlist)
 
         FNULL = open(os.devnull, 'w')
         i = 0
@@ -206,6 +262,15 @@ def add_to_itunes(gpm_library, only_scan):
             if gpm_track['already_exists'] == True: # track already exists in itunes
                 itunes_track = gpm_track['itunes_track']
 
+                itunes_track_location = getattr(itunes_track, 'location').get()
+                if itunes_track_location == appscript.k.missing_value:
+                    import shutil, ntpath
+                    filename = ntpath.basename(track_md['file_path'])
+                    new_itunes_track_location = os.path.join(options['itunes_media_folder'], filename)
+                    shutil.copyfile(track_md['file_path'], new_itunes_track_location)
+                    new_posix_path = get_posix_path(new_itunes_track_location)
+                    getattr(itunes_track, 'location').set(new_posix_path)
+
                 itunes_played_count = getattr(itunes_track, 'played_count').get()
                 gpm_played_count = gpm_track_md['played_count']
                 new_played_count = itunes_played_count + gpm_played_count
@@ -219,14 +284,21 @@ def add_to_itunes(gpm_library, only_scan):
                     new_played_date = gpm_played_date
                 getattr(itunes_track, 'played_date').set(new_played_date)
 
-                itunes_track_location = getattr(itunes_track, 'location').get()
-                if itunes_track_location == appscript.k.missing_value:
-                    import shutil, ntpath
-                    filename = ntpath.basename(track_md['file_path'])
-                    new_itunes_track_location = os.path.join(options['itunes_media_folder'], filename)
-                    shutil.copyfile(track_md['file_path'], new_itunes_track_location)
-                    new_posix_path = get_posix_path(new_itunes_track_location)
-                    getattr(itunes_track, 'location').set(new_posix_path)
+                getattr(itunes_track, 'year').set(gpm_track_md['year'])
+                getattr(itunes_track, 'album_artist').set(gpm_track_md['album_artist'])
+                getattr(itunes_track, 'composer').set(gpm_track_md['composer'])
+                if gpm_track["comment"] != "":
+                    getattr(itunes_track, 'comment').set(gpm_track_md['comment'])
+                getattr(itunes_track, 'track_number').set(gpm_track_md['track_number'])
+                getattr(itunes_track, 'track_count').set(gpm_track_md['track_count'])
+                getattr(itunes_track, 'genre').set(gpm_track_md['genre'])
+                getattr(itunes_track, 'disc_number').set(gpm_track_md['disc_number'])
+                getattr(itunes_track, 'disc_count').set(gpm_track_md['disc_count'])
+
+                if gpm_track['md_map']:
+                    getattr(itunes_track, 'name').set(gpm_track['title'])
+                    getattr(itunes_track, 'artist').set(gpm_track['artist'])
+                    getattr(itunes_track, 'album').set(gpm_track['album'])
             else: # track doesn't exist in itunes
                 posix_path = get_posix_path(track_md['file_path'])
                 gpm_track['itunes_track'] = iTunes.add(posix_path)
@@ -262,6 +334,7 @@ def add_to_itunes(gpm_library, only_scan):
                     appscript.k.description: description,
                 }
             )
+            itunes_playlist.move(to=itunes_folder_playlist)
             # add songs to playlist
             for gpm_playlist_track in gpm_playlist['tracks']:
                 key = gpm_library['track_keys'][gpm_playlist_track['trackId']]

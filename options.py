@@ -1,7 +1,7 @@
 options = {
     'gpm_username': 'kasperkh.kh@gmail.com',
-    'gpm_password': 'yesilly12twat',
-    'action': 'add_to_itunes',
+    'gpm_password': 'yasilly1twat',
+    'action': 'scan_itunes',
     # download
     # restructure
     # match_files
