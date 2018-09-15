@@ -192,13 +192,11 @@ def add_to_itunes(gpm_library, only_scan):
                 ' If you proceed, one of the duplicates will be considered an already existing track.'
             )
         print()
-        print("Unmatched iTunes tracks:")
-        
+        print()
+        print()
         for key, value in unmatched_itunes_tracks.items():
             print(key)
-        print()
-        print()
-        print()
+        print("Unmatched iTunes tracks:")
         print(json.dumps(unmatched_itunes_tracks, indent=4))
 
     # add tracks to itunes
