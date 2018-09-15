@@ -8,10 +8,9 @@ pprint = pprint.PrettyPrinter(indent=4).pprint
 from options import options
 if len(sys.argv) > 1:
     options['action'] = sys.argv[1]
-if options['action'] == 'match_files' and len(sys.argv) > 2:
-    options['songs_path'] = sys.argv[2]
-if options['action'] == 'add_to_itunes' and len(sys.argv) > 2:
-    options['songs_path'] = sys.argv[2]
+if options['action'] == 'match_files':
+    if len(sys.argv) > 2:
+        options['songs_path'] = sys.argv[2]
 
 def load_library(path = "library.json"):
     print('Loading GPM library...')
@@ -132,7 +131,7 @@ def add_to_itunes(gpm_library, only_scan):
     itunes_library = iTunes.library_playlists['Library']
     md_map = json.loads(open('md_map.json').read())
 
-    # find unmatches itunes tracks
+    # find unmatched itunes tracks
     itunes_tracks = itunes_library.tracks.get()
     unmatched_itunes_tracks = {}
     for itunes_track in itunes_tracks:
