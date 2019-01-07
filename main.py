@@ -1,5 +1,6 @@
-from gmusicapi import Mobileclient
+import gmusicapi
 import json, datetime, pprint, sys, os, subprocess
+from pathlib import Path
 import appscript # pip3 install distribute; sudo distribute
 from tqdm import tqdm
 from mp3_tagger import MP3File, VERSION_1, VERSION_2, VERSION_BOTH
@@ -35,7 +36,6 @@ def gpm_timestamp_to_date(gpm_timestamp):
     date = datetime.datetime.fromtimestamp(timestamp)
     return date
 
-
 def get_posix_path(file_path):
     from shlex import quote
     escaped_file_path = quote(file_path).strip("'")
@@ -43,20 +43,27 @@ def get_posix_path(file_path):
     posix_path = subprocess.check_output(posix_path_cmd, shell=True).decode("utf-8").rstrip()
     return posix_path
 
+def init_gpm_api(new_login):
+    gpm_oauth_credentials_path = 'gpm_oauth_credentials.cred'
+    Mobileclient = gmusicapi.Mobileclient()
+    if new_login: Mobileclient.perform_oauth(storage_filepath=gpm_oauth_credentials_path)
+    if not Path(gpm_oauth_credentials_path).is_file(): sys.exit('Not logged in.')
+    logged_in = Mobileclient.oauth_login(Mobileclient.FROM_MAC_ADDRESS, oauth_credentials=gpm_oauth_credentials_path)
+    if logged_in == False or not Mobileclient.is_authenticated:
+        sys.exit("Not logged in.")
+    return Mobileclient
+
 def download_library():
-    api = Mobileclient()
-    logged_in = api.login(options['gpm_username'], options['gpm_password'], Mobileclient.FROM_MAC_ADDRESS)
-    if logged_in == False:
-        sys.exit("Couldn't log in.")
-    if not api.is_authenticated:
-        sys.exit("Couldn't log in. Wrong credentials")
+    Mobileclient = init_gpm_api(new_login=False)
+    print('Downloading GPM library metadata...')
     library = {
-        'tracks': api.get_all_songs(),
-        'playlists': api.get_all_user_playlist_contents(),
+        'tracks': Mobileclient.get_all_songs(),
+        'playlists': Mobileclient.get_all_user_playlist_contents(),
     }
     return library
 
 def restructure_library(original_library):
+    print('Restructuring GPM library...')
     library = {
         'tracks': {},
         'track_keys': {},
@@ -339,30 +346,52 @@ def add_to_itunes(gpm_library, only_scan):
     if only_scan == False:
         print('All done. Now make sure your clock is correct.')
 
-if options['action'] == 'download':
-    print('Downloading GPM library...')
+if options['action'] == 'login':
+    
+    init_gpm_api(new_login=True)
+    
+elif options['action'] == 'fetch':
+
     gpm_library = download_library()
     save_library(gpm_library, 'library_downloaded.json')
     print("    Track count:", len(gpm_library["tracks"]))
     print("    Playlist count:", len(gpm_library["playlists"]))
-elif options['action'] == 'restructure':
-    gpm_library = load_library("library_downloaded.json")
-    print('Restructuring GPM library...')
+
     gpm_library = restructure_library(gpm_library)
     save_library(gpm_library, 'library_restructured.json')
+
+elif options['action'] == 'download':
+
+    gpm_library = download_library()
+    save_library(gpm_library, 'library_downloaded.json')
+    print("    Track count:", len(gpm_library["tracks"]))
+    print("    Playlist count:", len(gpm_library["playlists"]))
+
+elif options['action'] == 'restructure':
+    
+    gpm_library = load_library("library_downloaded.json")
+    gpm_library = restructure_library(gpm_library)
+    save_library(gpm_library, 'library_restructured.json')
+
 elif options['action'] == 'match_files':
+
     gpm_library = load_library('library_restructured.json')
     print('Matching GPM library with song files...')
     gpm_library = match_files(gpm_library)
     save_library(gpm_library, 'library_matched_files.json')
+
 elif options['action'] == 'scan_itunes':
+
     gpm_library = load_library('library_matched_files.json')
     add_to_itunes(gpm_library, only_scan=True)
+
 elif options['action'] == 'add_to_itunes':
+
     gpm_library = load_library('library_matched_files.json')
     add_to_itunes(gpm_library, only_scan=False)
-    
+
 else:
+    
     sys.exit('Unknown action "'+options['action']+'"')
 
 # loop through audio files

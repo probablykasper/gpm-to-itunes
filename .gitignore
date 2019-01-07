@@ -2,6 +2,7 @@ options.py
 library_downloaded.json
 library_restructured.json
 library_matched_files.json
+gpm_oauth_credentials.cred
 
 .vscode
 __pycache__
