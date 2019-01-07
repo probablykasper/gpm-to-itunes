@@ -360,19 +360,6 @@ elif options['action'] == 'fetch':
     gpm_library = restructure_library(gpm_library)
     save_library(gpm_library, 'library_restructured.json')
 
-elif options['action'] == 'download':
-
-    gpm_library = download_library()
-    save_library(gpm_library, 'library_downloaded.json')
-    print("    Track count:", len(gpm_library["tracks"]))
-    print("    Playlist count:", len(gpm_library["playlists"]))
-
-elif options['action'] == 'restructure':
-    
-    gpm_library = load_library("library_downloaded.json")
-    gpm_library = restructure_library(gpm_library)
-    save_library(gpm_library, 'library_restructured.json')
-
 elif options['action'] == 'match_files':
 
     gpm_library = load_library('library_restructured.json')
