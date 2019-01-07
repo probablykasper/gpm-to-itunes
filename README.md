@@ -10,6 +10,12 @@ In iTunes, a playlist folder named "GPM PLAYLISTS" will be created. GPM user pla
 GPM tracks will not keep their thumbs up or thumbs down ratings when they're added to iTunes. Instead, they will be added to two playlists that will be created, named "GPM Thumbs Up" and "GPM Thumbs Down". They will also be inside the "GPM PLAYLISTS" playlist folder.
 
 # Guide
+1. Use macOS
+1. Install Python 3 from [python.org](https://python.org)
+1. **CREATE A BACKUP OF YOUR ITUNES FOLDER** (~/Music/iTunes) in case something goes wrong
+1. 
+
+
 1. Make sure you're running on macOS.
 2. CREATE A BACKUP OF YOUR ITUNES FOLDER (your_username/Music/iTunes). No matter what. If something does go wrong (which is not unlikely), you may want to restart with from scratch.
 3. Install Python 3 from [python.org](https://python.org)
