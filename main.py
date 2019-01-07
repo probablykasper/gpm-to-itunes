@@ -1,25 +1,35 @@
 import gmusicapi
 import json, datetime, pprint, sys, os, subprocess
 from pathlib import Path
-import appscript # pip3 install distribute; sudo distribute
+import appscript
 from tqdm import tqdm
 from mp3_tagger import MP3File, VERSION_1, VERSION_2, VERSION_BOTH
 pprint = pprint.PrettyPrinter(indent=4).pprint
 
-from options import options
 if len(sys.argv) > 1:
-    options['action'] = sys.argv[1]
-if options['action'] == 'match_files':
-    if len(sys.argv) > 2:
-        options['songs_path'] = sys.argv[2]
+    action = sys.argv[1]
+else:
+    sys.exit('Error: Must have an "action" argument.')
 
-def load_library(path = "library.json"):
+if action == 'match_files':
+    if len(sys.argv) > 2:
+        songs_path = sys.argv[2]
+    else:
+        sys.exit('Error: Must have a "songs_path" argument.')
+elif action == 'add_to_itunes':
+    if len(sys.argv) > 3:
+        sudo_password = sys.argv[2]
+        itunes_media_folder = sys.argv[3]
+    else:
+        sys.exit('Error: Must have "sudo_password" and "itunes_media_folder" argument.')
+
+def load_library(path = "user_files/library.json"):
     print('Loading GPM library...')
     gpm_library = json.loads(open(path).read())
     print("    Track count:", len(gpm_library["tracks"]))
     print("    Playlist count:", len(gpm_library["playlists"]))
     return gpm_library
-def save_library(content, path = "library.json"):
+def save_library(content, path = "user_files/library.json"):
     file = open(path, "w+")
     file.write(json.dumps(content, indent=2))
     file.close()
@@ -91,10 +101,10 @@ def restructure_library(original_library):
 def match_files(gpm_library):
     # scan how many files there are
     fileCount = 0
-    for subdir, dirs, files in os.walk(options['songs_path']):
+    for subdir, dirs, files in os.walk(songs_path):
         fileCount += len(files)
     with tqdm(total=fileCount) as progressbar:
-        for subdir, dirs, files in os.walk(options['songs_path']):
+        for subdir, dirs, files in os.walk(songs_path):
             for file in files:
                 file_path = os.path.join(subdir, file)
                 filename, extension = os.path.splitext(file_path)
@@ -136,7 +146,10 @@ def add_to_itunes(gpm_library, only_scan):
     
     iTunes = appscript.app('iTunes')
     itunes_library = iTunes.library_playlists['Library']
-    md_map = json.loads(open('md_map.json').read())
+    if Path('user_files/md_map.json').is_file():
+        md_map = json.loads(open('user_files/md_map.json').read())
+    else:
+        md_map = {}
 
     # find unmatched itunes tracks
     itunes_tracks = itunes_library.tracks.get()
@@ -215,7 +228,7 @@ def add_to_itunes(gpm_library, only_scan):
         original_usingnetworktime = 'off' if 'Network Time: Off' in usingnetworktime_output else 'on'
         subprocess.call(
             ('echo %s | sudo -S systemsetup -setusingnetworktime %s'
-            % (options['sudo_password'], 'off')), shell=True, stdout=subprocess.PIPE
+            % (sudo_password, 'off')), shell=True, stdout=subprocess.PIPE
         )
         print()
 
@@ -258,7 +271,7 @@ def add_to_itunes(gpm_library, only_scan):
             time = date_added.strftime('%H:%M:%S') # hh:mm:ss
             subprocess.call(
                 ('echo "%s" | sudo -S systemsetup -setdate %s -settime %s'
-                % (options['sudo_password'], date, time)), shell=True, stdout=FNULL, stderr=subprocess.STDOUT
+                % (sudo_password, date, time)), shell=True, stdout=FNULL, stderr=subprocess.STDOUT
             )
             
             # add to itunes and update metadata
@@ -267,7 +280,7 @@ def add_to_itunes(gpm_library, only_scan):
                 itunes_track = gpm_track['itunes_track']
 
                 itunes_track_location = getattr(itunes_track, 'location').get()
-                if itunes_track_location == appscript.k.missing_value:
+                if itunes_track_location == appscript.k.missing_value and itunes_media_folder:
                     import shutil, ntpath
                     filename = ntpath.basename(track_md['file_path'])
                     new_itunes_track_location = os.path.join(options['itunes_media_folder'], filename)
@@ -321,7 +334,7 @@ def add_to_itunes(gpm_library, only_scan):
         # set network time to what it was before
         subprocess.call(
             ('echo %s | sudo -S systemsetup -setusingnetworktime %s'
-            % (options['sudo_password'], original_usingnetworktime)).split()
+            % (sudo_password, original_usingnetworktime)).split()
         )
 
     # add playlists to itunes
@@ -346,40 +359,40 @@ def add_to_itunes(gpm_library, only_scan):
     if only_scan == False:
         print('All done. Now make sure your clock is correct.')
 
-if options['action'] == 'login':
+if action == 'login':
     
     init_gpm_api(new_login=True)
     
-elif options['action'] == 'fetch':
+elif action == 'fetch':
 
     gpm_library = download_library()
-    save_library(gpm_library, 'library_downloaded.json')
+    save_library(gpm_library, 'user_files/library_downloaded.json')
     print("    Track count:", len(gpm_library["tracks"]))
     print("    Playlist count:", len(gpm_library["playlists"]))
 
     gpm_library = restructure_library(gpm_library)
-    save_library(gpm_library, 'library_restructured.json')
+    save_library(gpm_library, 'user_files/library_restructured.json')
 
-elif options['action'] == 'match_files':
+elif action == 'match_files':
 
-    gpm_library = load_library('library_restructured.json')
+    gpm_library = load_library('user_files/library_restructured.json')
     print('Matching GPM library with song files...')
     gpm_library = match_files(gpm_library)
-    save_library(gpm_library, 'library_matched_files.json')
+    save_library(gpm_library, 'user_files/library_matched_files.json')
 
-elif options['action'] == 'scan_itunes':
+elif action == 'scan_itunes':
 
-    gpm_library = load_library('library_matched_files.json')
+    gpm_library = load_library('user_files/library_matched_files.json')
     add_to_itunes(gpm_library, only_scan=True)
 
-elif options['action'] == 'add_to_itunes':
+elif action == 'add_to_itunes':
 
-    gpm_library = load_library('library_matched_files.json')
+    gpm_library = load_library('user_files/library_matched_files.json')
     add_to_itunes(gpm_library, only_scan=False)
 
 else:
     
-    sys.exit('Unknown action "'+options['action']+'"')
+    sys.exit('Unknown action "'+action+'"')
 
 # loop through audio files
 #     -get the audio file's artist/title
